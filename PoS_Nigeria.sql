@@ -600,11 +600,11 @@ ORDER BY
 -- ======================================================================================================================================================================================================================================================================================================================
 --14.1 Cashier Performace - Below Expectations Jan
 DECLARE @TargetMeet DECIMAL(18,2) = 9000000;
-DECLARE @SalesMonth VARCHAR(7) = '2024-01'; -- YYYY-MM, change as needed
+DECLARE @SalesMonth VARCHAR(7) = '2024-01'; 
 
 WITH Monthly AS (
     SELECT
-        UPPER(LTRIM(RTRIM(cashier_id))) AS cashier_id,   -- normalize id
+        UPPER(LTRIM(RTRIM(cashier_id))) AS cashier_id,   
         FORMAT(transaction_date, 'yyyy-MM') AS SalesMonth,
         SUM(items_count) AS TotalItems,
         SUM(total_amount_ngn) AS TotalSales
@@ -620,7 +620,7 @@ SELECT
     TotalSales
 FROM Monthly
 WHERE SalesMonth = @SalesMonth
-  AND TotalSales < @TargetMeet    -- Below expectation (change operator if you want <=)
+  AND TotalSales < @TargetMeet    
 ORDER BY TotalSales DESC;
 
 
