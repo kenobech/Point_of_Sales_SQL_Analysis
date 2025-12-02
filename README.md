@@ -1,187 +1,225 @@
-# Point_of_Sales_SQL_Analysis
-I designed and implemented a full end-to-end Point of Sale ETL and Analytics Pipeline for an 800k-row dataset, including database creation, schema design, bulk ingestion, profiling, normalization, error handling, automation via SQL Agent, and analytical reporting. The solution uses MERGE-based upserts, structured schemas, automated logging/auditing, daily ETL scheduling, indexed analytical tables, and KPI computation for strategic insights.
+
+# Point of Sales SQL Analysis
+
+A production-ready Point of Sale (PoS) ETL and analytics pipeline for an 800,000-row dataset from Hugging Face Ltd.'s retail operations in Nigeria.
+
+This README consolidates architecture, implementation steps, findings, and recommended next steps. It keeps pointers to the SQL scripts included in this repository for schema creation and job scheduling.
+
+## Contents
+
+- Introduction
+- Database & schemas
+- Ingestion and staging
+- Profiling and normalization
+- ETL pipeline and automation
+- Indexing and performance
+- Analytics & KPIs
+- Recommendations
+- Files in this repository
+- Summary
 
 ---
 
-# **Introduction**
+## Introduction
 
-The Point of Sale (PoS) dataset for **Hugging Face Ltd.** contains **800,000 rows** and **11 columns**, namely:
-- transaction_id,
-- store_name,
-- city,
-- transaction_date,
-- cashier_id,
-- items_count,
-- total_amount_ngn,
-- payment_method,
-- discount_applied,
-- loyalty_points_earned, and
-- receipt_number.
+Dataset summary
 
-Below is the structured workflow I followed in designing and implementing the complete PoS data engineering and analytics pipeline.
+- Rows: **800,000**
+- Columns: **11** — transaction_id, store_name, city, transaction_date, cashier_id, items_count, total_amount_ngn, payment_method, discount_applied, loyalty_points_earned, receipt_number
+
+The rest of this document describes what was built and suggests practical next steps.
 
 ---
 
-## **1. Database Setup**
+## Database & schemas
 
-I began by creating a new SQL Server database called **RetailPoSDB**. This database acts as the central repository for all stages of the ETL workflow—from raw ingestion to analytical reporting.
+Database: **RetailPoSDB**
 
----
+Schemas and purpose:
 
-## **2. Schema Design**
+- staging — raw CSV landing tables (no transformations)
+- ref — reference/dimension tables (stores, payment methods)
+- sales — normalized transactional data (fact tables)
+- analytics — aggregates and KPI tables/views
+- log — ETL/audit and error logging
 
-To maintain a clean, scalable, and highly organized warehouse structure, I created the following schemas:
-
-### **• staging schema**
-
-Used for raw data ingestion via **BULK INSERT**. No transformations occur here; it's a landing zone for the CSV file.
-
-### **• ref schema**
-
-Holds reference (dimension) tables such as
-
-* **ref.stores** (store_name, city)
-* **ref.payment_methods** (payment_methods, payment_id)
-
-These serve as master data tables to enforce consistency and support referential integrity.
-
-### **• sales schema**
-
-Contains the cleaned and normalized **fact table**:
-
-* **sales.transactions**, which stores transaction-level facts mapped to store_id and payment_id from reference tables.
-
-### **• analytics schema**
-
-Used for aggregated insights and reporting outputs, e.g.:
-
-* **analytics.daily_summary**
-* Views such as **vw_daily_revenue**, **vw_revenue_per_store**
-
-### **• log schema**
-
-Includes structured logging tables for:
-
-* ETL errors
-* Audit trails
-* Metadata for pipeline monitoring
-  
----
-
-## **3. Staging Layer & Raw Data Ingestion**
-
-Next, I created **staging.PoSRaw**, a denormalized table that mirrors the CSV structure.
-
-Using **BULK INSERT**, I loaded all 800k records directly into the staging table. This step ensures optimal loading performance before any cleaning or transformations.
+This separation increases maintainability and clarifies ownership for each layer.
 
 ---
 
-## **4. Data Profiling & Anomaly Detection**
+## Ingestion and staging
 
-Before normalization, I performed detailed profiling to understand data quality and identify anomalies:
+1. Created `staging.PoSRaw` with the same column layout as the CSV.
+2. Fast bulk import using BULK INSERT into `staging.PoSRaw` (800k rows).
+3. Staging holds raw data for validation and controlled transformation.
 
-### ** Duplicate checks**
-
-* Duplicate *receipt_number*
-* Duplicate *store_name*
-* Duplicate *city*
-* Duplicate *transaction_date*
-
-### ** Null analysis**
-
-Identified which columns had nulls and to what extent.
-
-### **Outlier detection**
-
-Flagged abnormal large values of `items_count` and `total_amount_ngn`.
-
-### ** Invalid dates**
-
-Checked for future timestamps and transactions recorded outside business hours (8 AM – 10 PM).
-
-This profiling step was crucial for determining the cleaning intensity needed and identifying normalization opportunities.
+See `PoS_Nigeria.sql` for table definitions and ingestion examples.
 
 ---
 
-## **5. Normalization & Creation of Dimension and Fact Tables**
+## Profiling and normalization
 
-From the profiling results, I determined that several fields, such as **store_name**, **city**, and **payment_method**, were repeated hundreds or thousands of times.
+Profiling performed on staging to measure:
 
-To eliminate redundancy and ensure data integrity normalization to 3NF was necessary. the raw table was denormalised, I had to normalise it innto the following tables:
+- duplicates (receipt_number and other keys)
+- null distributions per column
+- outliers in `items_count` and `total_amount_ngn`
+- invalid or future transaction_date values
 
-### **Created dimension tables:**
+Findings and actions:
 
-* **ref.stores** (distinct store_name + city combinations)
-* **ref.payment_methods** (distinct payment methods)
+- Repeated values: `store_name`, `city`, `payment_method` were normalized into `ref` tables.
+- Duplicate receipts and malformed dates were flagged and quarantined during ETL.
+- No reliable natural primary key in the raw file — surrogate keys were used in targets.
 
-### **Created fact table:**
+Created normalized tables:
 
-* **sales.transactions**
+- `ref.stores` (store_id PK, store_name, city)
+- `ref.payment_methods` (payment_id PK, payment_method)
+- `sales.transactions` (transaction_id or surrogate PK, store_id FK, payment_id FK, cashier_id, transaction_date, items_count, total_amount_ngn, discount_applied, loyalty_points_earned, receipt_number)
 
-The fact table captures all transactional metrics—items_count, total_amount_ngn, loyalty points, etc.—but references store and payment attributes through **foreign keys** rather than repeating text values.
-
----
-
-## **6. ETL Pipeline & Master MERGE Procedure**
-
-I developed a robust ETL pipeline implemented through:
-
-### **etl.sp_master_etl_merge**
-
-A single stored procedure that handles:
-
-* Upsert (MERGE) logic for stores
-* Upsert (MERGE) logic for payment methods
-* Deduplication using ROW_NUMBER
-* Insert/update of the sales transactions fact table
-* Explicit TRY…CATCH error handling
-* Automatic error logging into **log.error_log**
-
-The ETL is fully incremental and idempotent, meaning it can run repeatedly without duplicating data.
+Relationships: `ref.stores` -> `sales.transactions` (1:N), `ref.payment_methods` -> `sales.transactions` (1:N).
 
 ---
 
-## **7. SQL Server Agent Job (ETL Automation)**
+## ETL pipeline and automation
 
-To automate the pipeline, I created a scheduled SQL Agent Job called:
+- Master stored procedure: `etl.sp_master_etl_merge` performs MERGE-based upserts for reference tables and the transactions fact table.
+- Deduplication via ROW_NUMBER(): keeps canonical rows per business key.
+- Error handling: TRY…CATCH with logging to `log.error_log` (stores error message, step, and sample rows).
+- Idempotent runs: carefully designed MERGE and deterministic keys allow safe replays.
 
-### **PoS_ETL_Daily_Refresh**
+Automation
 
-* Runs **daily at 1:00 AM**
-* Executes the master ETL procedure
-* Includes automatic retries
-* Logged execution status and row counts
-
-This converts the entire system into a production-ready, self-refreshing data pipeline.
+- A SQL Server Agent job `PoS_ETL_Daily_Refresh` was created (daily at 01:00) to run the master ETL and capture run metrics.
+- See `Run_ETL_Daily_PoSNigeria.sql` for the job script.
 
 ---
 
-## **8. Analytical Layer & KPIs**
+## Indexing and performance
 
-Using normalized and cleaned data, I implemented analytic queries that cover:
+- Created indexes on common predicates and join keys (examples: `sales.transaction_date`, `ref.stores.store_id`, `ref.payment_methods.payment_id`).
+- For large-scale analytics consider partitioning `sales.transactions` by month/year and using columnstore indexes to accelerate aggregations.
+- Use covering indexes for the most common KPI queries.
 
-### **Insights**
-From the analysis, I found that there are 10 stores, 15 cities, 900 cashiers, and 800,000 receipts, which corresponds to 800,000 transactions. The best-performing cashiers by sales volume are CASH763 and CASH460, both recording product sales worth over 100 million. The least-performing are CASH410, CASH943, CASH738, and CASH106, each with sales of approximately 70 million.
+---
 
-The total revenue generated is ₦80 billion, with an average transaction value of ₦100,435.005367. There are 160,246 discounted transactions and 639,754 non-discounted transactions. Total accumulated loyalty points stand at 400,438,676.
+## Analytics & KPIs (summary)
 
-Among the cities, Abeoluta is the highest-grossing in terms of revenue, while Pointek is the top-performing store. The highest revenue date recorded is 16-09-2024.
+- Stores: **10** across **15** cities
+- Cashiers: **~900**
+- Transactions/receipts: **800,000**
+- Total revenue: **~₦80 billion**; average transaction: **~₦100,435**
+- Discounted transactions: **160,246**; full-price: **639,754**
+- Loyalty points total: **400,438,676**
 
-Regarding payment methods, cash leads with 400,000 transactions, followed by card with 319,000, and mobile money with 79,000. A similar trend is observed in revenue:
+Top performers
 
-Cash: ~₦40 billion
+- Cashiers: CASH763, CASH460 (>₦100M each)
+- Lowest: CASH410, CASH943, CASH738, CASH106 (~₦70M each)
+- Top city: Abeoluta; Top store: Pointek; Peak revenue date: 2024-09-16
 
-Card: ~₦32 billion
+Payment methods
 
-Mobile Money: ~₦8 billion
+- Cash: 400,000 txns (~₦40B)
+- Card: 319,000 txns (~₦32B)
+- Mobile money: 79,000 txns (~₦8B)
 
-This clearly shows that cash is the most preferred mode of payment. Cash transactions also have the highest number of discounted transactions as well as the highest number of full-price transactions, while mobile money consistently records the lowest counts in both categories. Even when broken down by store, cash remains the dominant payment method.
+Temporal trends
 
-To analyze cashier performance, I used a variable and a CTE. For example, in the month of January, 465 cashiers met the set target of ₦9 million, while 435 did not. This is an important function because it can be used to determine bonus allocations, making it easy to identify which cashiers deserve incentives based on performance in a specific month.
+- Best month: August; worst: October
+- Best quarter: Q4; worst: Q1
+- Peak week: Week 13; lowest: Week 44
 
-Using the same logic, I also evaluated store performance. With a target of ₦9 million, Balogun Market met its target for January, indicating that it is operating within the required threshold.
+Example KPI use-case
 
-In terms of weekly revenue trends, Week 13 generates the highest revenue, while Week 44 generates the lowest. August is the highest-grossing month, and October is the lowest. Overall, the 4th quarter is the highest-performing, and the 1st quarter is the lowest.
+- With a ₦9M monthly sales target: 465 cashiers met the target in January while 435 did not. Balogun Market met its store target for January.
 
-------
+---
+
+## Business recommendations (management actions)
+
+Below are practical actions management can take based on the analytics findings.
+
+1) Seasonal & monthly performance (August high, October low)
+	- Why it matters: Knowing peak and trough months enables better inventory planning, staffing, and marketing spend allocation to maximize revenue and minimize wastage.
+	- Actions:
+	  - Run targeted promotions in low months (October) — time-limited discounts, bundle offers, or loyalty multipliers to stimulate demand.
+	  - Shift marketing budget from peak to pre-peak months to amplify demand before and during August, and run retention campaigns for October.
+	  - Adjust inventory orders and supplier contracts ahead of anticipated peaks to avoid stockouts and reduce expedited shipping costs.
+	  - Temporarily increase staffing levels and opening hours around peak periods (August peaks, Week 13) and reduce or reallocate staff in low periods.
+
+2) Payment-method strategy (cash dominant)
+	- Why it matters: Cash dominates volume and revenue; promoting higher-margin payment options or incentivizing digital payments can reduce cash-handling costs and fraud risk.
+	- Actions:
+	  - Introduce small incentives for card/mobile payments (e.g., loyalty points bonus or instant discount for digital payments).
+	  - Review reconciliation processes and cash controls to reduce shrinkage; invest in POS terminals and staff training for digital acceptance.
+	  - Negotiate lower card fees or co-marketing deals with payment providers if volume supports it.
+	- KPIs to track: % revenue by payment type, average ticket by payment type.
+
+3) Cashier & store performance (top & bottom performers)
+	- Why it matters: Identifying top performers helps replicate best practices; supporting low performers improves overall revenue.
+	- Actions:
+	  - Run targeted training and coaching programs for bottom performers; create playbooks capturing top cashiers' successful approaches.
+      - Recognize and reward top performers through bonuses, public acknowledgment, or career advancement opportunities.
+	  - Implement incentive schemes tied to clean KPIs (revenue, average basket, refund rate) to align behavior without encouraging fraud.
+	  - Use shift-level dashboards to provide near-real-time feedback to cashiers and managers.
+	- KPIs to track: revenue per cashier
+    
+
+4) Store-level strategies
+    - Identify underperforming stores and conduct root-cause analysis (location, competition, staffing).
+    - Tailor local marketing and community engagement to boost foottraffic.
+    - Optimize inventory mix based on local preferences and sales data.
+
+
+5) Quick wins (30–90 day  experiments)
+	- Launch a targeted October promo in a subset of stores to test responsiveness.
+	- Run a “digital payment week” with incentives to measure change in digital adoption.
+	- Implement cashier coaching with an hourly dashboard in a pilot store.
+
+---
+
+## Files in this repository
+
+- `PoS_Nigeria.sql` — schema and ETL SQL scripts
+- `Run_ETL_Daily_PoSNigeria.sql` — sample SQL Agent job to schedule the ETL
+
+---
+
+## Summary
+
+This project produces a maintainable, auditable and efficient PoS data pipeline from raw CSV ingestion through to analytical KPIs. It demonstrates best practices for staging, normalization, idempotent ETL, automation and monitoring.
+
+If you'd like, I can:
+
+- add a short "How to run the ETL" snippet with the exact SQL commands to execute the master ETL procedure.
+- produce an operational runbook (single-page) with troubleshooting steps and QA queries.
+
+Additional help I can provide
+
+- I can add a short "How to run the ETL" snippet with exact SQL commands to execute the master ETL procedure.
+- I can produce an operational runbook (single-page) with troubleshooting steps and QA queries.
+
+How to run the ETL (example)
+
+```sql
+USE RetailPoSDB;
+GO
+
+-- Simple: execute the master ETL stored procedure
+BEGIN TRY
+	EXEC etl.sp_master_etl_merge;
+END TRY
+BEGIN CATCH
+	INSERT INTO log.error_log(job_name, step_name, error_message, error_time)
+	VALUES('ManualRun','Execute_sp_master_etl_merge', ERROR_MESSAGE(), GETDATE());
+	THROW; -- re-raise after logging
+END CATCH
+GO
+
+-- Example: start the SQL Agent job (if you prefer to trigger the scheduled job)
+EXEC msdb.dbo.sp_start_job @job_name = 'PoS_ETL_Daily_Refresh';
+```
+
 
