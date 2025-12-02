@@ -17,12 +17,18 @@ GO
 -- ===========================================================================================================================================
 -- 2. SCHEMA CREATION
 -- ===========================================================================================================================================
-CREATE SCHEMA staging;
-CREATE SCHEMA sales;
-CREATE SCHEMA analytics;
-CREATE SCHEMA ref;
-CREATE SCHEMA log;
-CREATE SCHEMA etl;
+IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'staging')
+    EXEC('CREATE SCHEMA staging');
+IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'sales')
+    EXEC('CREATE SCHEMA sales');
+IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'analytics')
+    EXEC('CREATE SCHEMA analytics');
+IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'ref')
+    EXEC('CREATE SCHEMA ref');
+IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'log')
+    EXEC('CREATE SCHEMA log');
+IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'etl')
+    EXEC('CREATE SCHEMA etl');
 GO
 -- ===========================================================================================================================================
 --3. ERROR LOGGING/AUDIT
@@ -193,7 +199,7 @@ GO
 CREATE TABLE ref.stores (
     store_id INT IDENTITY(1,1) PRIMARY KEY,
     store_name NVARCHAR(100),
-    city NVARCHAR(100),
+    city NVARCHAR(100)
 );
 GO
 
@@ -619,6 +625,8 @@ ORDER BY TotalSales DESC;
 
 
 --14.2 Cashier Performanc - Beyond Expectation
+GO
+
 DECLARE @TargetMeet DECIMAL(18,2) = 9000000;
 DECLARE @SalesMonth VARCHAR(7) = '2024-01';
 
@@ -646,6 +654,7 @@ ORDER BY TotalSales DESC;
 -- ======================================================================================================================================================================================================================================================================================================================
 --15. STORE PERFORMANCE ANALYSIS
 -- ======================================================================================================================================================================================================================================================================================================================
+GO
 --15.1 Store Performance - January Balogun Market
 DECLARE 
     @TargetMeet DECIMAL(18,2) = 9000000,
@@ -683,6 +692,7 @@ WHERE
 ORDER BY TotalSales DESC;
 
 --15.2 Store Monthly Performace - March
+GO
 DECLARE 
     @TargetMeet DECIMAL(18,2) = 9000000,
     @SalesMonth VARCHAR(7) = '2024-03';
@@ -818,6 +828,8 @@ SELECT
 FROM sales.transactions;
 
 --Monthly Revenue Stored Procedure
+GO
+-- Monthly Revenue Stored Procedure
 CREATE PROCEDURE analytics.sp_monthly_revenue
     @Year INT
 AS
@@ -832,6 +844,7 @@ BEGIN
 END;
 
 --Daily Summary
+GO
 CREATE PROCEDURE analytics.sp_load_daily_summary AS
 BEGIN
     INSERT INTO analytics.daily_summary (report_date, total_transactions, total_revenue)
@@ -844,6 +857,7 @@ BEGIN
 END;
 
 --Revenue View
+GO
 CREATE VIEW analytics.vw_revenue_per_store AS
 SELECT 
     st.store_name,
@@ -853,6 +867,7 @@ JOIN ref.stores st ON t.store_id = st.store_id
 GROUP BY st.store_name;
 
 --Trending View
+GO
 CREATE VIEW analytics.vw_daily_revenue AS
 SELECT 
     CAST(transaction_date AS DATE) AS report_date,
