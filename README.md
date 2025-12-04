@@ -184,8 +184,8 @@ Below are practical actions management can take based on the analytics findings.
 
 - `PoS_Nigeria.sql` — schema and ETL SQL scripts
 - `Run_ETL_Daily_PoSNigeria.sql` — sample SQL Agent job to schedule the ETL
-
----
+- `README.md`
+- `PosCSVzip.zip` — raw CSV dataset
 
 ## Summary
 
