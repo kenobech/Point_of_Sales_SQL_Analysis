@@ -190,36 +190,3 @@ Below are practical actions management can take based on the analytics findings.
 ## Summary
 
 This project produces a maintainable, auditable and efficient PoS data pipeline from raw CSV ingestion through to analytical KPIs. It demonstrates best practices for staging, normalization, idempotent ETL, automation and monitoring.
-
-If you'd like, I can:
-
-- add a short "How to run the ETL" snippet with the exact SQL commands to execute the master ETL procedure.
-- produce an operational runbook (single-page) with troubleshooting steps and QA queries.
-
-Additional help I can provide
-
-- I can add a short "How to run the ETL" snippet with exact SQL commands to execute the master ETL procedure.
-- I can produce an operational runbook (single-page) with troubleshooting steps and QA queries.
-
-How to run the ETL (example)
-
-```sql
-USE RetailPoSDB;
-GO
-
--- Simple: execute the master ETL stored procedure
-BEGIN TRY
-	EXEC etl.sp_master_etl_merge;
-END TRY
-BEGIN CATCH
-	INSERT INTO log.error_log(job_name, step_name, error_message, error_time)
-	VALUES('ManualRun','Execute_sp_master_etl_merge', ERROR_MESSAGE(), GETDATE());
-	THROW; -- re-raise after logging
-END CATCH
-GO
-
--- Example: start the SQL Agent job (if you prefer to trigger the scheduled job)
-EXEC msdb.dbo.sp_start_job @job_name = 'PoS_ETL_Daily_Refresh';
-```
-
-
